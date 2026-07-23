@@ -1,0 +1,6 @@
+name: ffi_prototype
+description: Harness Dart puro para validar a ponte FFI com o core Rust (sdr_core), antes de integrar ao Flutter.
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
