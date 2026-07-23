@@ -1,18 +1,17 @@
-# flutter_ui
+# sdr_studio
 
-Interface do SDR Studio (Flutter/Dart) — desktop + mobile a partir do mesmo código.
+A new Flutter project.
 
-## i18n
+## Getting Started
 
-Strings traduzíveis em `lib/l10n/` (`app_en.arb`, `app_ja.arb`, `app_pt.arb`).
-Configuração em `l10n.yaml`. Para gerar as classes de localização depois que
-o projeto Flutter for inicializado aqui (`flutter create .`), rode:
+This project is a starting point for a Flutter application.
 
-```
-flutter gen-l10n
-```
+A few resources to get you started if this is your first Flutter project:
 
-## Status
+- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
+- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
+- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
 
-Ainda não inicializado como projeto Flutter — próximo passo é rodar
-`flutter create .` dentro desta pasta, preservando `lib/l10n/` e `l10n.yaml`.
+For help getting started with Flutter development, view the
+[online documentation](https://docs.flutter.dev/), which offers tutorials,
+samples, guidance on mobile development, and a full API reference.

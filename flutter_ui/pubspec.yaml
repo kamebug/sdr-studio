@@ -1,0 +1,26 @@
+name: sdr_studio
+description: SDR Studio — plataforma SDR multiplataforma.
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  intl: ^0.20.2
+  # Necessário para converter String (Dart) <-> string C (Rust) nos dois
+  # sentidos — dart:ffi sozinho não inclui alocador de memória nativa.
+  ffi: ^2.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  generate: true

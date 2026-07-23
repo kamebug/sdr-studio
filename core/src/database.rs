@@ -1,18 +1,14 @@
 // database — camada de acesso à biblioteca de frequências (SQLite).
-//
-// `include_str!` embute o conteúdo do arquivo .sql dentro do binário
-// compilado em tempo de compilação — ou seja, o schema em
-// database/schema/001_initial.sql é a fonte da verdade (versionada,
-// legível, editável), mas o Rust não precisa ler o arquivo em tempo de
-// execução, só na hora de compilar.
 
 use rusqlite::Connection;
 
-const SCHEMA: &str = include_str!("../../database/schema/001_initial.sql");
+// pub(crate) — visível para o resto do crate (lib.rs precisa usar ao
+// inicializar o banco persistente), mas não exposto fora do core.
+pub(crate) const SCHEMA: &str = include_str!("../../database/schema/001_initial.sql");
 
 /// Abre um banco em memória (não grava em disco) e aplica o schema.
-/// Útil para testes e para este protótipo — o banco "de verdade" do app
-/// vai abrir um arquivo .db em disco, mas a lógica de migração é a mesma.
+/// Usado só em testes — o banco "de verdade" do app usa um arquivo em
+/// disco, inicializado em lib.rs via `sdr_core_db_init`.
 pub fn open_test_database() -> Connection {
     let conn = Connection::open_in_memory().expect("failed to open in-memory database");
     conn.execute_batch(SCHEMA)
@@ -20,9 +16,6 @@ pub fn open_test_database() -> Connection {
     conn
 }
 
-/// Insere uma frequência de teste e retorna quantas frequências existem
-/// no banco depois disso — usado para provar que escrita E leitura
-/// funcionam corretamente através da cadeia inteira.
 pub fn insert_and_count_frequencies(conn: &Connection) -> i64 {
     conn.execute(
         "INSERT INTO frequencies (frequency_hz, mode, name, is_favorite) VALUES (?1, ?2, ?3, ?4)",
@@ -41,7 +34,6 @@ mod tests {
     #[test]
     fn schema_applies_without_error() {
         let _conn = open_test_database();
-        // Se chegou aqui sem panic, o schema foi aplicado com sucesso.
     }
 
     #[test]

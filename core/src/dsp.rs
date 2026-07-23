@@ -1,18 +1,9 @@
 // dsp — processamento de sinal real do core.
-//
-// Primeira peça de DSP de verdade do projeto: dado um bloco de amostras,
-// calcula a FFT (Fast Fourier Transform) e encontra a frequência com maior
-// energia — é exatamente o cálculo por trás de qualquer waterfall/espectro
-// de SDR. Aqui ainda testamos com sinal sintético (do driver_ffi), mas a
-// função em si é a mesma que será usada com amostras reais do RTL-SDR depois.
 
 use rustfft::{num_complex::Complex, FftPlanner};
 
-/// Recebe um bloco de amostras (sinal no domínio do tempo) e a taxa de
-/// amostragem, e retorna a frequência (em Hz) com maior energia no espectro.
-///
-/// Resolução em frequência = sample_rate / samples.len() — quanto mais
-/// amostras, mais preciso o resultado (e mais custoso computacionalmente).
+/// Recebe um bloco de amostras e retorna a frequência (em Hz) com maior
+/// energia no espectro.
 pub fn find_peak_frequency(samples: &[f32], sample_rate: f32) -> f32 {
     let n = samples.len();
 
@@ -26,8 +17,6 @@ pub fn find_peak_frequency(samples: &[f32], sample_rate: f32) -> f32 {
 
     fft.process(&mut buffer);
 
-    // Só a primeira metade importa (a segunda é espelho, por o sinal
-    // de entrada ser real, não complexo) — frequências positivas.
     let mut max_magnitude = 0.0_f32;
     let mut max_index = 0_usize;
 
@@ -42,13 +31,41 @@ pub fn find_peak_frequency(samples: &[f32], sample_rate: f32) -> f32 {
     max_index as f32 * sample_rate / n as f32
 }
 
+/// Calcula o espectro de magnitude completo (normalizado 0.0–1.0) de um
+/// bloco de amostras — é o dado bruto usado para desenhar waterfall/espectro
+/// na UI. Retorna metade do tamanho da FFT (só frequências positivas, já
+/// que o sinal de entrada é real, não complexo).
+pub fn compute_spectrum(samples: &[f32]) -> Vec<f32> {
+    let n = samples.len();
+
+    let mut planner = FftPlanner::new();
+    let fft = planner.plan_fft_forward(n);
+
+    let mut buffer: Vec<Complex<f32>> = samples
+        .iter()
+        .map(|&x| Complex { re: x, im: 0.0 })
+        .collect();
+
+    fft.process(&mut buffer);
+
+    let half = n / 2;
+    let magnitudes: Vec<f32> = buffer[..half].iter().map(|c| c.norm()).collect();
+
+    // Normaliza para 0.0–1.0 (o maior valor vira 1.0) — facilita desenhar
+    // na UI sem a Dart precisar saber a escala absoluta da FFT.
+    let max = magnitudes.iter().cloned().fold(0.0_f32, f32::max);
+    if max > 0.0 {
+        magnitudes.iter().map(|&m| m / max).collect()
+    } else {
+        magnitudes
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::f32::consts::PI;
 
-    /// Gera uma senoide pura em Rust (sem depender do driver C),
-    /// só para testar a FFT de forma isolada.
     fn sine_wave(len: usize, sample_rate: f32, freq: f32) -> Vec<f32> {
         (0..len)
             .map(|i| {
@@ -62,7 +79,6 @@ mod tests {
     fn detects_1000hz_tone() {
         let samples = sine_wave(4096, 48000.0, 1000.0);
         let detected = find_peak_frequency(&samples, 48000.0);
-        // Resolução = 48000/4096 ≈ 11.7 Hz — tolerância generosa de 20 Hz.
         assert!((detected - 1000.0).abs() < 20.0, "detected = {detected}");
     }
 
@@ -71,5 +87,15 @@ mod tests {
         let samples = sine_wave(4096, 48000.0, 5000.0);
         let detected = find_peak_frequency(&samples, 48000.0);
         assert!((detected - 5000.0).abs() < 20.0, "detected = {detected}");
+    }
+
+    #[test]
+    fn spectrum_is_normalized_between_zero_and_one() {
+        let samples = sine_wave(1024, 48000.0, 2000.0);
+        let spectrum = compute_spectrum(&samples);
+        assert_eq!(spectrum.len(), 512);
+        let max = spectrum.iter().cloned().fold(0.0_f32, f32::max);
+        assert!((max - 1.0).abs() < 0.01);
+        assert!(spectrum.iter().all(|&m| (0.0..=1.0).contains(&m)));
     }
 }

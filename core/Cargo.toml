@@ -14,11 +14,12 @@ cc = "1"
 
 [dependencies]
 rustfft = "6"
-
-# feature "bundled" compila o próprio código-fonte do SQLite junto do
-# projeto (via cc, o mesmo mecanismo já usado para o driver stub) —
-# não precisa instalar SQLite separadamente no sistema.
 rusqlite = { version = "0.31", features = ["bundled"] }
+
+# Usados só para serializar a lista de frequências como JSON, que o Dart
+# já sabe ler nativamente (dart:convert) sem precisar de pacote extra.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [profile.dev]
 opt-level = 0
