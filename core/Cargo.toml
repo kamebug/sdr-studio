@@ -2,13 +2,23 @@
 name = "sdr_core"
 version = "0.1.0"
 edition = "2021"
-description = "SDR Studio core engine — DSP/FFT/waterfall (Rust). Prototype stage: FFI bridge validation."
+description = "SDR Studio core engine — DSP/FFT/waterfall + biblioteca de frequências (Rust)."
+build = "build.rs"
 
 [lib]
 name = "sdr_core"
-# cdylib = biblioteca dinâmica (.dll no Windows, .so no Linux, .dylib no macOS)
-# chamável de fora do Rust — é essa a peça que o Dart/Flutter vai carregar.
 crate-type = ["cdylib"]
+
+[build-dependencies]
+cc = "1"
+
+[dependencies]
+rustfft = "6"
+
+# feature "bundled" compila o próprio código-fonte do SQLite junto do
+# projeto (via cc, o mesmo mecanismo já usado para o driver stub) —
+# não precisa instalar SQLite separadamente no sistema.
+rusqlite = { version = "0.31", features = ["bundled"] }
 
 [profile.dev]
 opt-level = 0
