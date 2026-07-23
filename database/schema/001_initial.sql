@@ -1,10 +1,9 @@
 -- database/schema/001_initial.sql
 --
--- Schema inicial da biblioteca de frequências (escopo do MVP).
--- Fora do MVP por enquanto, mas já previsto nos campos abaixo:
--- banco mundial de frequências (import/export comunitário) vai reaproveitar
--- estas mesmas tabelas, por isso "category" e "country" já existem aqui
--- mesmo sem tela nenhuma de import/export ainda.
+-- Schema inicial da biblioteca de frequências (escopo do MVP), mais a
+-- tabela de configurações (settings), usada para persistir preferências
+-- simples do usuário (ex: idioma escolhido) sem precisar de pacote extra
+-- como shared_preferences — reaproveita o mesmo banco SQLite já existente.
 
 CREATE TABLE IF NOT EXISTS frequencies (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,10 +37,16 @@ CREATE TABLE IF NOT EXISTS profiles (
     created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
--- Tabela de junção: um perfil agrupa várias frequências, e uma frequência
--- pode pertencer a vários perfis.
 CREATE TABLE IF NOT EXISTS profile_frequencies (
     profile_id    INTEGER NOT NULL REFERENCES profiles(id)    ON DELETE CASCADE,
     frequency_id  INTEGER NOT NULL REFERENCES frequencies(id) ON DELETE CASCADE,
     PRIMARY KEY (profile_id, frequency_id)
+);
+
+-- Configurações simples chave/valor (ex: idioma escolhido, tema).
+-- "INSERT ... ON CONFLICT DO UPDATE" no Rust usa a PRIMARY KEY abaixo
+-- para decidir entre inserir ou atualizar.
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );

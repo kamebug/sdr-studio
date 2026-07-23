@@ -39,10 +39,14 @@ typedef _ListFreqDart = Pointer<Utf8> Function();
 typedef _FreeStringNative = Void Function(Pointer<Utf8> ptr);
 typedef _FreeStringDart = void Function(Pointer<Utf8> ptr);
 
-/// Resolve um caminho estável para o arquivo do banco de dados, em uma
-/// pasta padrão do sistema — evita o problema de caminho relativo mudar
-/// conforme de onde o app é executado (o mesmo tipo de problema que
-/// tivemos com o caminho da DLL).
+typedef _SetSettingNative = Int32 Function(
+    Pointer<Utf8> key, Pointer<Utf8> value);
+typedef _SetSettingDart = int Function(Pointer<Utf8> key, Pointer<Utf8> value);
+
+typedef _GetSettingNative = Pointer<Utf8> Function(Pointer<Utf8> key);
+typedef _GetSettingDart = Pointer<Utf8> Function(Pointer<Utf8> key);
+
+/// Resolve um caminho estável para o arquivo do banco de dados.
 String resolveDatabasePath() {
   if (Platform.isWindows) {
     final appData = Platform.environment['APPDATA'] ?? Directory.current.path;
@@ -51,8 +55,6 @@ String resolveDatabasePath() {
     return '${dir.path}\\sdr_studio.db';
   }
 
-  // Linux/macOS: pasta oculta na home. Pode ser refinado depois com o
-  // pacote path_provider para seguir a convenção exata de cada SO.
   final home = Platform.environment['HOME'] ?? Directory.current.path;
   final dir = Directory('$home/.sdr_studio');
   if (!dir.existsSync()) dir.createSync(recursive: true);
@@ -83,6 +85,10 @@ class SdrCoreBridge {
         'sdr_core_list_frequencies');
     _freeString = _lib.lookupFunction<_FreeStringNative, _FreeStringDart>(
         'sdr_core_free_string');
+    _setSetting = _lib.lookupFunction<_SetSettingNative, _SetSettingDart>(
+        'sdr_core_set_setting');
+    _getSetting = _lib.lookupFunction<_GetSettingNative, _GetSettingDart>(
+        'sdr_core_get_setting');
   }
 
   final DynamicLibrary _lib;
@@ -97,6 +103,8 @@ class SdrCoreBridge {
   late final _DeleteFreqDart _deleteFrequency;
   late final _ListFreqDart _listFrequencies;
   late final _FreeStringDart _freeString;
+  late final _SetSettingDart _setSetting;
+  late final _GetSettingDart _getSetting;
 
   static SdrCoreBridge? _instance;
 
@@ -165,15 +173,11 @@ class SdrCoreBridge {
     return result;
   }
 
-  /// Inicializa (ou abre, se já existir) o arquivo de banco de dados.
-  /// Precisa ser chamado uma única vez, antes de qualquer outra função
-  /// de biblioteca de frequências abaixo.
   void initDatabase([String? path]) {
     final dbPath = path ?? resolveDatabasePath();
     final pathPtr = dbPath.toNativeUtf8();
     try {
       final result = _dbInit(pathPtr);
-      // -4 = já estava inicializado (ex: hot reload) — não é erro real.
       if (result != 0 && result != -4) {
         throw StateError('Falha ao inicializar o banco (código $result)');
       }
@@ -182,7 +186,6 @@ class SdrCoreBridge {
     }
   }
 
-  /// Adiciona uma frequência à biblioteca. Retorna o id criado.
   int addFrequency({
     required double freqHz,
     required String mode,
@@ -202,12 +205,36 @@ class SdrCoreBridge {
 
   bool deleteFrequency(int id) => _deleteFrequency(id) == 0;
 
-  /// Retorna todas as frequências salvas, mais recentes primeiro.
   List<Map<String, dynamic>> listFrequencies() {
     final ptr = _listFrequencies();
     final jsonStr = ptr.toDartString();
     _freeString(ptr);
     final decoded = jsonDecode(jsonStr) as List<dynamic>;
     return decoded.cast<Map<String, dynamic>>();
+  }
+
+  /// Salva uma configuração simples (ex: idioma escolhido) no banco.
+  void setSetting(String key, String value) {
+    final keyPtr = key.toNativeUtf8();
+    final valuePtr = value.toNativeUtf8();
+    try {
+      _setSetting(keyPtr, valuePtr);
+    } finally {
+      calloc.free(keyPtr);
+      calloc.free(valuePtr);
+    }
+  }
+
+  /// Lê uma configuração salva, ou retorna [fallback] se não existir.
+  String getSetting(String key, {String fallback = ''}) {
+    final keyPtr = key.toNativeUtf8();
+    try {
+      final ptr = _getSetting(keyPtr);
+      final value = ptr.toDartString();
+      _freeString(ptr);
+      return value.isEmpty ? fallback : value;
+    } finally {
+      calloc.free(keyPtr);
+    }
   }
 }

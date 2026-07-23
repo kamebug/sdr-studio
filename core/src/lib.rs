@@ -12,11 +12,6 @@ use rusqlite::Connection;
 
 pub const SPECTRUM_BINS: usize = 256;
 
-// Conexão persistente com o banco "de verdade" (arquivo em disco).
-// Inicializada uma vez via `sdr_core_db_init`, usada por todas as
-// funções de CRUD depois disso. Um `Mutex` porque, em teoria, chamadas
-// FFI poderiam vir de threads diferentes — na prática hoje é só uma
-// thread, mas é mais seguro já deixar protegido.
 static DB: OnceLock<Mutex<Connection>> = OnceLock::new();
 
 fn db() -> &'static Mutex<Connection> {
@@ -24,8 +19,6 @@ fn db() -> &'static Mutex<Connection> {
         .expect("sdr_core_db_init precisa ser chamado antes de qualquer operação de banco")
 }
 
-/// Lê uma string C (ponteiro vindo do Dart) como String Rust.
-/// Retorna string vazia se o ponteiro for nulo, em vez de crashar.
 unsafe fn read_c_string(ptr: *const c_char) -> String {
     if ptr.is_null() {
         return String::new();
@@ -34,7 +27,7 @@ unsafe fn read_c_string(ptr: *const c_char) -> String {
 }
 
 // ---------------------------------------------------------------------
-// Funções de diagnóstico / prototipagem (já existentes, mantidas)
+// Diagnóstico / prototipagem
 // ---------------------------------------------------------------------
 
 #[no_mangle]
@@ -44,7 +37,7 @@ pub extern "C" fn sdr_core_add(a: i32, b: i32) -> i32 {
 
 #[no_mangle]
 pub extern "C" fn sdr_core_version() -> *const u8 {
-    static VERSION: &[u8] = b"sdr_core 0.1.0 (frequency library prototype)\0";
+    static VERSION: &[u8] = b"sdr_core 0.1.0 (AM/FM demod + settings prototype)\0";
     VERSION.as_ptr()
 }
 
@@ -98,14 +91,57 @@ pub extern "C" fn sdr_core_free_spectrum(ptr: *mut f32) {
     }
 }
 
+/// Testa a demodulação AM de ponta a ponta: gera um sinal AM sintético
+/// (portadora 5000Hz modulada por uma mensagem de 200Hz), demodula, e
+/// retorna a frequência detectada no resultado — deve ficar perto de
+/// 200Hz se a demodulação funcionou (não 5000Hz, que seria sinal de que
+/// a demodulação não removeu a portadora).
+#[no_mangle]
+pub extern "C" fn sdr_core_test_am_demod() -> f32 {
+    const SAMPLE_RATE: f32 = 48000.0;
+    const CARRIER_HZ: f32 = 5000.0;
+    const MESSAGE_HZ: f32 = 200.0;
+    const N: usize = 8192;
+
+    let samples: Vec<f32> = (0..N)
+        .map(|i| {
+            let t = i as f32 / SAMPLE_RATE;
+            let envelope = 1.0 + 0.5 * (2.0 * std::f32::consts::PI * MESSAGE_HZ * t).sin();
+            envelope * (2.0 * std::f32::consts::PI * CARRIER_HZ * t).sin()
+        })
+        .collect();
+
+    let demodulated = dsp::demodulate_am(&samples, 32);
+    dsp::find_peak_frequency(&demodulated, SAMPLE_RATE)
+}
+
+/// Testa a demodulação FM de ponta a ponta: gera um sinal FM sintético
+/// (mensagem de 300Hz modulando a fase), demodula, e retorna a frequência
+/// detectada — deve ficar perto de 300Hz.
+#[no_mangle]
+pub extern "C" fn sdr_core_test_fm_demod() -> f32 {
+    const SAMPLE_RATE: f32 = 48000.0;
+    const MESSAGE_HZ: f32 = 300.0;
+    const FM_INDEX: f32 = 5.0;
+    const N: usize = 8192;
+
+    let mut i_samples = Vec::with_capacity(N);
+    let mut q_samples = Vec::with_capacity(N);
+    for k in 0..N {
+        let t = k as f32 / SAMPLE_RATE;
+        let phase = FM_INDEX * (2.0 * std::f32::consts::PI * MESSAGE_HZ * t).sin();
+        i_samples.push(phase.cos());
+        q_samples.push(phase.sin());
+    }
+
+    let demodulated = dsp::demodulate_fm(&i_samples, &q_samples);
+    dsp::find_peak_frequency(&demodulated, SAMPLE_RATE)
+}
+
 // ---------------------------------------------------------------------
-// Biblioteca de frequências (banco persistente) — a parte nova
+// Biblioteca de frequências (banco persistente)
 // ---------------------------------------------------------------------
 
-/// Abre (ou cria) o arquivo de banco no caminho informado pelo Dart, e
-/// aplica o schema. Precisa ser chamada uma única vez, antes de qualquer
-/// outra função de banco abaixo. Retorna 0 em sucesso, código negativo
-/// em erro.
 #[no_mangle]
 pub extern "C" fn sdr_core_db_init(path_ptr: *const c_char) -> i32 {
     let path = unsafe { read_c_string(path_ptr) };
@@ -123,16 +159,12 @@ pub extern "C" fn sdr_core_db_init(path_ptr: *const c_char) -> i32 {
     }
 
     if DB.set(Mutex::new(conn)).is_err() {
-        // já tinha sido inicializado antes — não é um erro grave,
-        // só avisa com um código diferente.
         return -4;
     }
 
     0
 }
 
-/// Insere uma nova frequência. Retorna o id da linha criada (>= 1) em
-/// sucesso, ou -1 em erro.
 #[no_mangle]
 pub extern "C" fn sdr_core_add_frequency(
     freq_hz: f64,
@@ -154,8 +186,6 @@ pub extern "C" fn sdr_core_add_frequency(
     }
 }
 
-/// Alterna o favorito (0 -> 1 ou 1 -> 0) de uma frequência pelo id.
-/// Retorna 0 em sucesso, -1 se o id não existir ou der erro.
 #[no_mangle]
 pub extern "C" fn sdr_core_toggle_favorite(id: i64) -> i32 {
     let conn = db().lock().expect("mutex poisoned");
@@ -169,7 +199,6 @@ pub extern "C" fn sdr_core_toggle_favorite(id: i64) -> i32 {
     }
 }
 
-/// Remove uma frequência pelo id. Retorna 0 em sucesso, -1 em erro.
 #[no_mangle]
 pub extern "C" fn sdr_core_delete_frequency(id: i64) -> i32 {
     let conn = db().lock().expect("mutex poisoned");
@@ -189,12 +218,6 @@ struct FrequencyRow {
     is_favorite: bool,
 }
 
-/// Retorna todas as frequências como uma string JSON — o Dart lê isso
-/// com `jsonDecode` (nativo, sem pacote extra) e monta a lista da UI.
-///
-/// ATENÇÃO: a string retornada foi alocada aqui do lado Rust — quem
-/// chama precisa depois passar esse mesmo ponteiro para
-/// `sdr_core_free_string`, ou vaza memória.
 #[no_mangle]
 pub extern "C" fn sdr_core_list_frequencies() -> *mut c_char {
     let conn = db().lock().expect("mutex poisoned");
@@ -221,7 +244,6 @@ pub extern "C" fn sdr_core_list_frequencies() -> *mut c_char {
     CString::new(json).unwrap_or_default().into_raw()
 }
 
-/// Libera uma string alocada pelo Rust (usada por `sdr_core_list_frequencies`).
 #[no_mangle]
 pub extern "C" fn sdr_core_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
@@ -230,6 +252,51 @@ pub extern "C" fn sdr_core_free_string(ptr: *mut c_char) {
     unsafe {
         let _ = CString::from_raw(ptr);
     }
+}
+
+// ---------------------------------------------------------------------
+// Configurações (settings) — chave/valor simples, ex: idioma escolhido
+// ---------------------------------------------------------------------
+
+/// Salva (ou atualiza) uma configuração. Retorna 0 em sucesso.
+#[no_mangle]
+pub extern "C" fn sdr_core_set_setting(
+    key_ptr: *const c_char,
+    value_ptr: *const c_char,
+) -> i32 {
+    let key = unsafe { read_c_string(key_ptr) };
+    let value = unsafe { read_c_string(value_ptr) };
+
+    let conn = db().lock().expect("mutex poisoned");
+    let result = conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        rusqlite::params![key, value],
+    );
+
+    match result {
+        Ok(_) => 0,
+        Err(_) => -1,
+    }
+}
+
+/// Lê uma configuração salva. Retorna string vazia (não nulo) se a chave
+/// não existir — mais simples de tratar do lado Dart do que checar nulo.
+/// Memória alocada aqui — chamar `sdr_core_free_string` depois.
+#[no_mangle]
+pub extern "C" fn sdr_core_get_setting(key_ptr: *const c_char) -> *mut c_char {
+    let key = unsafe { read_c_string(key_ptr) };
+
+    let conn = db().lock().expect("mutex poisoned");
+    let value: String = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            rusqlite::params![key],
+            |row| row.get(0),
+        )
+        .unwrap_or_default();
+
+    CString::new(value).unwrap_or_default().into_raw()
 }
 
 #[cfg(test)]
@@ -270,14 +337,21 @@ mod tests {
     }
 
     #[test]
-    fn persistent_db_crud_roundtrip() {
-        // Banco em memória (":memory:" é um caminho especial do SQLite),
-        // só para este teste — não interfere com o banco real do app.
+    fn am_demod_pipeline_detects_message_frequency() {
+        let result = sdr_core_test_am_demod();
+        assert!((result - 200.0).abs() < 30.0, "result = {result}");
+    }
+
+    #[test]
+    fn fm_demod_pipeline_detects_message_frequency() {
+        let result = sdr_core_test_fm_demod();
+        assert!((result - 300.0).abs() < 30.0, "result = {result}");
+    }
+
+    #[test]
+    fn persistent_db_crud_and_settings_roundtrip() {
         let path = CString::new(":memory:").unwrap();
         let init_result = sdr_core_db_init(path.as_ptr());
-        // Pode já estar inicializado por outro teste rodando em paralelo
-        // (cargo test roda testes em threads diferentes) — só falha se
-        // o erro for de verdade (código -1, -2 ou -3), não -4 (já init).
         assert!(init_result == 0 || init_result == -4, "init_result = {init_result}");
 
         let mode = CString::new("FM").unwrap();
@@ -285,15 +359,23 @@ mod tests {
         let id = sdr_core_add_frequency(144_000_000.0, mode.as_ptr(), name.as_ptr());
         assert!(id >= 1, "id = {id}");
 
-        let toggle_result = sdr_core_toggle_favorite(id);
-        assert_eq!(toggle_result, 0);
+        assert_eq!(sdr_core_toggle_favorite(id), 0);
 
         let list_ptr = sdr_core_list_frequencies();
         let json = unsafe { CStr::from_ptr(list_ptr) }.to_str().unwrap();
         assert!(json.contains("Teste CRUD"));
         sdr_core_free_string(list_ptr);
 
-        let delete_result = sdr_core_delete_frequency(id);
-        assert_eq!(delete_result, 0);
+        assert_eq!(sdr_core_delete_frequency(id), 0);
+
+        // Settings
+        let key = CString::new("locale").unwrap();
+        let value = CString::new("ja").unwrap();
+        assert_eq!(sdr_core_set_setting(key.as_ptr(), value.as_ptr()), 0);
+
+        let read_ptr = sdr_core_get_setting(key.as_ptr());
+        let read_value = unsafe { CStr::from_ptr(read_ptr) }.to_str().unwrap();
+        assert_eq!(read_value, "ja");
+        sdr_core_free_string(read_ptr);
     }
 }
