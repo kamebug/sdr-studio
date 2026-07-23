@@ -1,0 +1,36 @@
+{
+  "@@locale": "ja",
+
+  "appTitle": "SDR Studio",
+
+  "waterfall": "ウォーターフォール",
+  "spectrum": "スペクトラム",
+  "frequency": "周波数",
+  "mode": "モード",
+  "gain": "ゲイン",
+  "bandwidth": "帯域幅",
+
+  "favorites": "お気に入り",
+  "history": "履歴",
+  "profiles": "プロファイル",
+  "addFrequency": "周波数を追加",
+  "removeFrequency": "周波数を削除",
+  "saveFrequency": "周波数を保存",
+  "frequencyLibrary": "周波数ライブラリ",
+
+  "modeAM": "AM",
+  "modeFM": "FM",
+
+  "settings": "設定",
+  "language": "言語",
+  "darkMode": "ダークモード",
+
+  "start": "開始",
+  "stop": "停止",
+  "connectDevice": "デバイスを接続",
+  "deviceNotFound": "SDRデバイスが見つかりません",
+
+  "errorGeneric": "エラーが発生しました",
+  "confirm": "確認",
+  "cancel": "キャンセル"
+}

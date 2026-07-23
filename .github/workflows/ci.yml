@@ -1,0 +1,25 @@
+name: CI
+
+# Esqueleto inicial — expandir conforme cada módulo (core, drivers, flutter_ui)
+# for ganhando código real para buildar/testar.
+#
+# Próximos passos previstos:
+#   - job "core": cargo build / cargo test (Rust)
+#   - job "flutter": flutter build (Windows / Android / Linux / macOS)
+#   - permissões "Read and write" habilitadas para publicar em Releases
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  sanity-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Placeholder
+        run: echo "Repositório inicializado. Jobs de build serão adicionados por módulo."

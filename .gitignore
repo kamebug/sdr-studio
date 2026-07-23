@@ -1,0 +1,51 @@
+# --- Rust (core/) ---
+core/target/
+**/*.rs.bk
+Cargo.lock
+
+# --- C/C++ (drivers/) ---
+drivers/build/
+drivers/**/*.o
+drivers/**/*.obj
+drivers/**/*.so
+drivers/**/*.dll
+drivers/**/*.dylib
+CMakeFiles/
+CMakeCache.txt
+
+# --- Flutter/Dart (flutter_ui/) ---
+flutter_ui/.dart_tool/
+flutter_ui/.flutter-plugins
+flutter_ui/.flutter-plugins-dependencies
+flutter_ui/build/
+flutter_ui/.pub-cache/
+flutter_ui/.pub/
+flutter_ui/**/generated_plugin_registrant.dart
+flutter_ui/android/local.properties
+flutter_ui/ios/Flutter/flutter_export_environment.sh
+
+# --- Python (python/, plugins/) ---
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# --- Banco de dados local (não versionar dados reais) ---
+database/*.db
+database/*.sqlite
+database/*.sqlite3
+
+# --- Sistema / IDE ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log
+
+# --- Build outputs gerais ---
+dist/
+out/
+*.exe
+*.apk

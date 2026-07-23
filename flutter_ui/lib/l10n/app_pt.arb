@@ -1,0 +1,36 @@
+{
+  "@@locale": "pt",
+
+  "appTitle": "SDR Studio",
+
+  "waterfall": "Waterfall",
+  "spectrum": "Espectro",
+  "frequency": "Frequência",
+  "mode": "Modo",
+  "gain": "Ganho",
+  "bandwidth": "Largura de banda",
+
+  "favorites": "Favoritos",
+  "history": "Histórico",
+  "profiles": "Perfis",
+  "addFrequency": "Adicionar frequência",
+  "removeFrequency": "Remover frequência",
+  "saveFrequency": "Salvar frequência",
+  "frequencyLibrary": "Biblioteca de frequências",
+
+  "modeAM": "AM",
+  "modeFM": "FM",
+
+  "settings": "Configurações",
+  "language": "Idioma",
+  "darkMode": "Modo escuro",
+
+  "start": "Iniciar",
+  "stop": "Parar",
+  "connectDevice": "Conectar dispositivo",
+  "deviceNotFound": "Nenhum dispositivo SDR encontrado",
+
+  "errorGeneric": "Ocorreu um erro",
+  "confirm": "Confirmar",
+  "cancel": "Cancelar"
+}
