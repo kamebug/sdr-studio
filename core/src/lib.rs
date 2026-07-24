@@ -1,5 +1,6 @@
 // sdr_core — núcleo Rust do SDR Studio.
 
+mod adsb;
 mod database;
 mod driver_ffi;
 mod dsp;
@@ -78,6 +79,23 @@ pub extern "C" fn sdr_core_generate_spectrum(freq_hz: f32) -> *mut f32 {
     let spectrum = dsp::compute_spectrum(&samples);
 
     let boxed_slice = spectrum.into_boxed_slice();
+    Box::into_raw(boxed_slice) as *mut f32
+}
+
+/// Igual a `sdr_core_generate_spectrum`, mas em dB (escala logarítmica)
+/// em vez de magnitude normalizada 0.0–1.0 — a escala que analisadores
+/// de espectro profissionais usam de verdade. Mesmo tamanho de buffer
+/// (`SPECTRUM_BINS`), então usa o mesmo `sdr_core_free_spectrum` para
+/// liberar a memória.
+#[no_mangle]
+pub extern "C" fn sdr_core_generate_spectrum_db(freq_hz: f32) -> *mut f32 {
+    const SAMPLE_RATE: f32 = 48000.0;
+    let fft_size = SPECTRUM_BINS * 2;
+
+    let samples = driver_ffi::generate_test_signal(fft_size, SAMPLE_RATE, freq_hz);
+    let spectrum_db = dsp::compute_spectrum_db(&samples);
+
+    let boxed_slice = spectrum_db.into_boxed_slice();
     Box::into_raw(boxed_slice) as *mut f32
 }
 
@@ -443,6 +461,25 @@ pub extern "C" fn sdr_core_free_audio_chunk(ptr: *mut f32) {
     }
 }
 
+// ---------------------------------------------------------------------
+// ADS-B / Mode S (protótipo — decodifica hex, ainda sem RF real)
+// ---------------------------------------------------------------------
+
+/// Decodifica uma mensagem Mode S de 112 bits (hex, 28 caracteres) e
+/// retorna o resultado como JSON. Retorna string vazia se não conseguir
+/// decodificar (formato inválido, ou DF diferente de 17).
+///
+/// Memória alocada aqui — chamar `sdr_core_free_string` depois.
+#[no_mangle]
+pub extern "C" fn sdr_core_decode_adsb(hex_ptr: *const c_char) -> *mut c_char {
+    let hex = unsafe { read_c_string(hex_ptr) };
+    let json = match adsb::decode_message(&hex) {
+        Some(decoded) => serde_json::to_string(&decoded).unwrap_or_default(),
+        None => String::new(),
+    };
+    CString::new(json).unwrap_or_default().into_raw()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -477,6 +514,15 @@ mod tests {
         let slice = unsafe { std::slice::from_raw_parts(ptr, SPECTRUM_BINS) };
         let max = slice.iter().cloned().fold(0.0_f32, f32::max);
         assert!((max - 1.0).abs() < 0.01);
+        sdr_core_free_spectrum(ptr);
+    }
+
+    #[test]
+    fn spectrum_db_has_finite_values() {
+        let ptr = sdr_core_generate_spectrum_db(1000.0);
+        assert!(!ptr.is_null());
+        let slice = unsafe { std::slice::from_raw_parts(ptr, SPECTRUM_BINS) };
+        assert!(slice.iter().all(|v| v.is_finite()));
         sdr_core_free_spectrum(ptr);
     }
 
@@ -552,5 +598,14 @@ mod tests {
         let max = slice.iter().map(|s| s.abs()).fold(0.0_f32, f32::max);
         assert!(max <= 0.61, "max amplitude = {max}");
         sdr_core_free_audio_chunk(ptr);
+    }
+
+    #[test]
+    fn decode_adsb_ffi_rejects_invalid_hex() {
+        let hex = CString::new("ABCD").unwrap();
+        let ptr = sdr_core_decode_adsb(hex.as_ptr());
+        let json = unsafe { CStr::from_ptr(ptr) }.to_str().unwrap();
+        assert_eq!(json, "");
+        sdr_core_free_string(ptr);
     }
 }

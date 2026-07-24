@@ -1,33 +1,44 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-/// Paleta do SDR Studio — inspirada nos princípios de instrumentos de
-/// laboratório digitais (painéis escuros, hierarquia clara, números
-/// monoespaçados), sem copiar a identidade visual de nenhuma marca real.
+/// Paleta do SDR Studio — inspirada nas convenções de cor de cockpits
+/// de vidro (glass cockpit) da aviação: ciano para valores selecionados/
+/// inseridos manualmente, magenta para o canal ativo secundário, âmbar
+/// para alertas, verde para estado normal, vermelho para alertas
+/// críticos. Essas são convenções padrão da indústria aeronáutica
+/// (usadas por vários fabricantes de aviônica), não uma reprodução da
+/// identidade visual registrada de nenhuma marca específica.
 class AppColors {
   AppColors._();
 
-  static const background = Color(0xFF0B0E11);
-  static const panel = Color(0xFF151A20);
-  static const border = Color(0xFF262C34);
-  static const textPrimary = Color(0xFFE7EBF0);
-  static const textMuted = Color(0xFF7C8794);
+  static const background = Color(0xFF060B12);
+  static const panel = Color(0xFF0D1520);
+  static const border = Color(0xFF1C2733);
+  static const textPrimary = Color(0xFFE8EDF2);
+  static const textMuted = Color(0xFF7A8794);
 
-  /// Âmbar — único acento "quente" da interface, reservado para
-  /// controles interativos. Contrasta de propósito com a rampa fria do
-  /// waterfall (preto → azul → ciano → amarelo → vermelho), separando
-  /// visualmente "dado" (frio) de "controle" (quente).
-  static const accent = Color(0xFFFF9F40);
+  /// Ciano — convenção de "valor selecionado/inserido manualmente" em
+  /// aviônica. Acento primário: VFO ativo, controles interativos.
+  static const accent = Color(0xFF00D9FF);
 
-  static const success = Color(0xFF4CD37A);
-  static const danger = Color(0xFFFF5C5C);
+  /// Magenta — convenção de "canal ativo secundário/comando" em
+  /// aviônica. Usado no VFO B e no marcador do VFO não-ativo.
+  static const accentSecondary = Color(0xFFE619B5);
+
+  /// Verde — convenção de "operação normal".
+  static const success = Color(0xFF00E676);
+
+  /// Vermelho — convenção de "alerta crítico".
+  static const danger = Color(0xFFFF3B30);
+
+  /// Âmbar — convenção de "caução/atenção".
+  static const caution = Color(0xFFFFC400);
 }
 
 /// Estilo monoespaçado (IBM Plex Mono) — usar em TODO número que muda em
 /// tempo real (frequência, dB, contadores). Dígitos de largura fixa não
 /// "tremem" horizontalmente a cada atualização — o mesmo motivo pelo
-/// qual instrumentos de RF reais usam displays de largura fixa. Decisão
-/// funcional, não só estética.
+/// qual instrumentos de RF reais usam displays de largura fixa.
 TextStyle monoStyle({
   double fontSize = 14,
   Color color = AppColors.textPrimary,
@@ -57,7 +68,7 @@ class AppTheme {
       colorScheme: base.colorScheme.copyWith(
         surface: AppColors.panel,
         primary: AppColors.accent,
-        secondary: AppColors.accent,
+        secondary: AppColors.accentSecondary,
         error: AppColors.danger,
       ),
       textTheme: textTheme,

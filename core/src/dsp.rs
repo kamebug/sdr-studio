@@ -29,6 +29,11 @@ pub fn find_peak_frequency(samples: &[f32], sample_rate: f32) -> f32 {
     max_index as f32 * sample_rate / n as f32
 }
 
+/// Espectro normalizado 0.0–1.0 (linear) — mantido para compatibilidade
+/// com quem já usa; prefira `compute_spectrum_db` para exibição, que é
+/// a escala que qualquer analisador de espectro profissional usa de
+/// verdade (RF tem faixa dinâmica grande demais para escala linear
+/// mostrar detalhe de sinais fracos ao lado de sinais fortes).
 pub fn compute_spectrum(samples: &[f32]) -> Vec<f32> {
     let n = samples.len();
 
@@ -53,6 +58,37 @@ pub fn compute_spectrum(samples: &[f32]) -> Vec<f32> {
     }
 }
 
+/// Espectro em dB (20*log10(magnitude)) — escala logarítmica usada por
+/// qualquer analisador de espectro/instrumento profissional de verdade
+/// (Rohde & Schwarz, Keysight, SDR#, SDRangel). Não normalizado a um
+/// range fixo aqui de propósito — quem exibe decide a janela de
+/// contraste (ex: -80dB a 0dB), o que também permite implementar um
+/// controle de "range/contrast" no futuro sem mudar o core.
+///
+/// Um piso pequeno (epsilon) evita log(0) = -infinito em bins sem
+/// nenhuma energia.
+pub fn compute_spectrum_db(samples: &[f32]) -> Vec<f32> {
+    let n = samples.len();
+
+    let mut planner = FftPlanner::new();
+    let fft = planner.plan_fft_forward(n);
+
+    let mut buffer: Vec<Complex<f32>> = samples
+        .iter()
+        .map(|&x| Complex { re: x, im: 0.0 })
+        .collect();
+
+    fft.process(&mut buffer);
+
+    let half = n / 2;
+    const EPSILON: f32 = 1e-6;
+
+    buffer[..half]
+        .iter()
+        .map(|c| 20.0 * (c.norm() + EPSILON).log10())
+        .collect()
+}
+
 /// Média móvel simples — usada como filtro passa-baixa na demodulação AM,
 /// pra suavizar a oscilação da portadora e sobrar só o envelope (a mensagem).
 fn moving_average(samples: &[f32], window: usize) -> Vec<f32> {
@@ -74,26 +110,13 @@ fn moving_average(samples: &[f32], window: usize) -> Vec<f32> {
 
 /// Demodulação AM: retificação (valor absoluto) seguida de um filtro
 /// passa-baixa (média móvel) — o método clássico de "detecção de envelope".
-/// A portadora oscila rápido demais para o filtro acompanhar e é suavizada
-/// para fora; a mensagem original (que varia mais devagar) é o que sobra.
-///
-/// `smoothing_window` deve ser grande o bastante para suavizar a portadora
-/// mas pequeno o bastante para não apagar a mensagem — normalmente uns
-/// poucos ciclos da portadora, bem menos que um ciclo da mensagem.
 pub fn demodulate_am(samples: &[f32], smoothing_window: usize) -> Vec<f32> {
     let rectified: Vec<f32> = samples.iter().map(|s| s.abs()).collect();
     moving_average(&rectified, smoothing_window)
 }
 
 /// Demodulação FM a partir de amostras IQ (banda base complexa): calcula
-/// a diferença de fase entre amostras consecutivas — matematicamente,
-/// o produto s[n] * conjugado(s[n-1]) tem como fase exatamente essa
-/// diferença. Essa diferença de fase é proporcional ao desvio de
-/// frequência instantâneo, que é o sinal original antes de modular.
-///
-/// Isso é o mesmo princípio usado por qualquer receptor FM real — a
-/// diferença é que aqui `i_samples`/`q_samples` vêm de um sinal sintético
-/// gerado matematicamente, não de uma captura de RF de verdade.
+/// a diferença de fase entre amostras consecutivas.
 pub fn demodulate_fm(i_samples: &[f32], q_samples: &[f32]) -> Vec<f32> {
     let n = i_samples.len().min(q_samples.len());
     let mut output = Vec::with_capacity(n.saturating_sub(1));
@@ -102,9 +125,6 @@ pub fn demodulate_fm(i_samples: &[f32], q_samples: &[f32]) -> Vec<f32> {
         let (i0, q0) = (i_samples[k - 1], q_samples[k - 1]);
         let (i1, q1) = (i_samples[k], q_samples[k]);
 
-        // s[k] * conj(s[k-1]):
-        //   parte real = i1*i0 + q1*q0
-        //   parte imaginária = q1*i0 - i1*q0
         let re = i1 * i0 + q1 * q0;
         let im = q1 * i0 - i1 * q0;
 
@@ -153,14 +173,39 @@ mod tests {
     }
 
     #[test]
+    fn spectrum_db_peak_is_at_tone_bin() {
+        let sample_rate = 48000.0;
+        let n = 1024;
+        let samples = sine_wave(n, sample_rate, 2000.0);
+        let spectrum_db = compute_spectrum_db(&samples);
+
+        assert_eq!(spectrum_db.len(), n / 2);
+
+        // O bin de maior dB deve corresponder à frequência do tom (2000Hz).
+        let (peak_index, _) = spectrum_db
+            .iter()
+            .enumerate()
+            .fold((0, f32::NEG_INFINITY), |acc, (i, &v)| {
+                if v > acc.1 {
+                    (i, v)
+                } else {
+                    acc
+                }
+            });
+        let peak_freq = peak_index as f32 * sample_rate / n as f32;
+        assert!((peak_freq - 2000.0).abs() < 60.0, "peak_freq = {peak_freq}");
+
+        // Todos os valores devem ser finitos (sem -infinito de log(0)).
+        assert!(spectrum_db.iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
     fn am_demod_recovers_message_frequency() {
         let sample_rate = 48000.0;
         let carrier_freq = 5000.0;
         let message_freq = 200.0;
         let n = 8192;
 
-        // Sinal AM clássico: portadora cuja amplitude varia conforme a
-        // mensagem — envelope = 1.0 + 0.5*sin(mensagem).
         let samples: Vec<f32> = (0..n)
             .map(|i| {
                 let t = i as f32 / sample_rate;
@@ -182,7 +227,7 @@ mod tests {
     fn fm_demod_recovers_message_frequency() {
         let sample_rate = 48000.0;
         let message_freq = 300.0;
-        let fm_index = 5.0; // índice de modulação — quanto a fase "balança"
+        let fm_index = 5.0;
 
         let n = 8192;
         let mut i_samples = Vec::with_capacity(n);

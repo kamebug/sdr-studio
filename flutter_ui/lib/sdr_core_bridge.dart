@@ -16,6 +16,9 @@ typedef _SpectrumBinsDart = int Function();
 typedef _GenSpectrumNative = Pointer<Float> Function(Float freqHz);
 typedef _GenSpectrumDart = Pointer<Float> Function(double freqHz);
 
+typedef _GenSpectrumDbNative = Pointer<Float> Function(Float freqHz);
+typedef _GenSpectrumDbDart = Pointer<Float> Function(double freqHz);
+
 typedef _FreeSpectrumNative = Void Function(Pointer<Float> ptr);
 typedef _FreeSpectrumDart = void Function(Pointer<Float> ptr);
 
@@ -92,6 +95,8 @@ class SdrCoreBridge {
         _SpectrumBinsDart>('sdr_core_spectrum_bins');
     _generateSpectrum = _lib.lookupFunction<_GenSpectrumNative,
         _GenSpectrumDart>('sdr_core_generate_spectrum');
+    _generateSpectrumDb = _lib.lookupFunction<_GenSpectrumDbNative,
+        _GenSpectrumDbDart>('sdr_core_generate_spectrum_db');
     _freeSpectrum = _lib.lookupFunction<_FreeSpectrumNative,
         _FreeSpectrumDart>('sdr_core_free_spectrum');
     _dbInit =
@@ -129,6 +134,7 @@ class SdrCoreBridge {
   late final _VersionDart _version;
   late final _SpectrumBinsDart _spectrumBins;
   late final _GenSpectrumDart _generateSpectrum;
+  late final _GenSpectrumDbDart _generateSpectrumDb;
   late final _FreeSpectrumDart _freeSpectrum;
   late final _DbInitDart _dbInit;
   late final _AddFreqDart _addFrequency;
@@ -205,6 +211,17 @@ class SdrCoreBridge {
 
   List<double> generateSpectrum(double freqHz) {
     final ptr = _generateSpectrum(freqHz);
+    final bins = spectrumBins;
+    final result = List<double>.generate(bins, (i) => ptr[i]);
+    _freeSpectrum(ptr);
+    return result;
+  }
+
+  /// Espectro em dB (escala logarítmica) — o que analisadores de
+  /// espectro profissionais usam de verdade, em vez de magnitude
+  /// normalizada 0.0–1.0. Valores tipicamente negativos (ex: -80 a 0).
+  List<double> generateSpectrumDb(double freqHz) {
+    final ptr = _generateSpectrumDb(freqHz);
     final bins = spectrumBins;
     final result = List<double>.generate(bins, (i) => ptr[i]);
     _freeSpectrum(ptr);

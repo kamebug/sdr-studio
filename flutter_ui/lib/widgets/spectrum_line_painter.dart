@@ -10,7 +10,12 @@ import '../theme/app_theme.dart';
 /// mais do que traços finos — dá pra encaixar grade, marcador de pico e
 /// leitura numérica sem poluir a tela.
 class SpectrumLinePainter extends CustomPainter {
-  SpectrumLinePainter(this.spectrum, {this.maxFrequencyHz = 24000});
+  SpectrumLinePainter(
+    this.spectrum, {
+    this.maxFrequencyHz = 24000,
+    this.secondaryVfoFraction,
+    this.maxHoldTrace,
+  });
 
   /// Frame de espectro mais recente (magnitudes normalizadas 0.0–1.0).
   final List<double> spectrum;
@@ -18,13 +23,46 @@ class SpectrumLinePainter extends CustomPainter {
   /// Frequência representada no bin mais à direita do eixo X.
   final double maxFrequencyHz;
 
+  /// Posição horizontal (0.0–1.0) do OUTRO VFO — null esconde o
+  /// segundo marcador.
+  final double? secondaryVfoFraction;
+
+  /// Traço de "pico retido" (max-hold) — guarda o maior valor visto em
+  /// cada bin ao longo do tempo, desenhado como linha mais fraca por
+  /// trás do traço atual. Recurso padrão de analisadores de espectro
+  /// profissionais para não perder picos breves entre atualizações.
+  final List<double>? maxHoldTrace;
+
   @override
   void paint(Canvas canvas, Size size) {
     _drawGrid(canvas, size);
-    if (spectrum.length < 2) return;
-    _drawSpectrumLine(canvas, size);
-    _drawPeakMarker(canvas, size);
-    _drawAxisLabels(canvas, size);
+    if (maxHoldTrace != null && maxHoldTrace!.length >= 2) {
+      _drawTrace(canvas, size, maxHoldTrace!,
+          color: AppColors.textMuted, strokeWidth: 1.0);
+    }
+    if (spectrum.length >= 2) {
+      _drawSpectrumLine(canvas, size);
+      _drawPeakMarker(canvas, size);
+      _drawAxisLabels(canvas, size);
+    }
+    _drawVfoLine(canvas, size);
+    if (secondaryVfoFraction != null) {
+      final x = size.width * secondaryVfoFraction!.clamp(0.0, 1.0);
+      final paint = Paint()
+        ..color = AppColors.accentSecondary
+        ..strokeWidth = 1.5;
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+    }
+  }
+
+  /// Linha vertical no centro indicando o VFO — mesma convenção do
+  /// waterfall e dos SDRs de referência (SDR++/SDRangel/SDR#).
+  void _drawVfoLine(Canvas canvas, Size size) {
+    final x = size.width / 2;
+    final paint = Paint()
+      ..color = AppColors.accent
+      ..strokeWidth = 1.5;
+    canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
   }
 
   void _drawGrid(Canvas canvas, Size size) {
@@ -45,9 +83,39 @@ class SpectrumLinePainter extends CustomPainter {
     }
   }
 
+  /// Desenha um traço genérico (usado pelo max-hold) — mesma lógica de
+  /// `_drawSpectrumLine`, mas parametrizada por cor/espessura/dado, já
+  /// que o traço atual e o de pico retido usam o mesmo tipo de desenho.
+  void _drawTrace(
+    Canvas canvas,
+    Size size,
+    List<double> values, {
+    required Color color,
+    required double strokeWidth,
+  }) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = strokeWidth
+      ..style = PaintingStyle.stroke
+      ..strokeJoin = StrokeJoin.round;
+
+    final path = Path();
+    final n = values.length;
+    for (var i = 0; i < n; i++) {
+      final x = size.width * i / (n - 1);
+      final y = size.height * (1 - values[i].clamp(0.0, 1.0));
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+    canvas.drawPath(path, paint);
+  }
+
   void _drawSpectrumLine(Canvas canvas, Size size) {
     final linePaint = Paint()
-      ..color = AppColors.textPrimary
+      ..color = AppColors.accent
       ..strokeWidth = 1.2
       ..style = PaintingStyle.stroke
       ..strokeJoin = StrokeJoin.round;
