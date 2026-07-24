@@ -95,6 +95,8 @@ O plano original tinha 15 capítulos sequenciais de pesquisa/definição antes d
 - SSB, CW, modos digitais, scanner, múltiplos VFO, gravação IQ.
 - Dark mode, design system completo, acessibilidade.
 
+**Nota sobre múltiplos VFO (esclarecimento de terminologia):** não são telas/displays separados — é a mesma tela de waterfall com vários marcadores de frequência simultâneos, cada um com seu próprio demodulador, todos dentro da mesma faixa de banda que o hardware está capturando naquele momento (ex: SDR++ permite decodificar 3 sinais AERO ao mesmo tempo com um único RTL-SDR). Requer: (1) capturar uma faixa larga de IQ em vez de uma única frequência por vez, (2) múltiplos demoduladores rodando em paralelo sobre essa mesma captura, (3) UI com múltiplos marcadores coloridos no waterfall. Fica de fora do MVP de propósito — só faz sentido testar contra sinal de RF real, não contra o sinal sintético usado até a Fase 5.
+
 ### Fase 7 — i18n (expansão)
 - Base já existe desde o MVP (EN/JP/PT) — aqui é só ampliar: segunda fase de idiomas (ES/FR/DE/IT/KR/ZH-Hans/ZH-Hant).
 - Formatação regional de data/hora/número.

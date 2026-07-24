@@ -1,12 +1,13 @@
 name: CI
 
-# Esqueleto inicial — expandir conforme cada módulo (core, drivers, flutter_ui)
-# for ganhando código real para buildar/testar.
-#
-# Próximos passos previstos:
-#   - job "core": cargo build / cargo test (Rust)
-#   - job "flutter": flutter build (Windows / Android / Linux / macOS)
-#   - permissões "Read and write" habilitadas para publicar em Releases
+# Roda em todo push/PR para main. Dois blocos independentes:
+#   1) core Rust — build + testes, em Linux E Windows (o driver stub em C
+#      é portável, então testar nos dois cedo evita surpresa quando o
+#      projeto expandir para Linux/macOS de verdade, mesmo o produto
+#      final hoje mirando só Windows).
+#   2) app Flutter — analyze + build no Windows (plataforma do MVP).
+#      Não depende do DLL do core existir, porque a biblioteca nativa é
+#      carregada em tempo de execução (dart:ffi), não em tempo de build.
 
 on:
   push:
@@ -15,11 +16,62 @@ on:
     branches: [main]
 
 jobs:
-  sanity-check:
-    runs-on: ubuntu-latest
+  core:
+    name: Core Rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Placeholder
-        run: echo "Repositório inicializado. Jobs de build serão adicionados por módulo."
+      - name: Instalar Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache do Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            core/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('core/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: cargo build
+        working-directory: core
+        run: cargo build --verbose
+
+      - name: cargo test
+        working-directory: core
+        run: cargo test --verbose
+
+  flutter:
+    name: Flutter (Windows)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Instalar Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: flutter pub get
+        working-directory: flutter_ui
+        run: flutter pub get
+
+      - name: flutter analyze
+        working-directory: flutter_ui
+        run: flutter analyze
+
+      - name: flutter build windows
+        working-directory: flutter_ui
+        run: flutter build windows --release

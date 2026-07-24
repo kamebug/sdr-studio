@@ -37,7 +37,7 @@ pub extern "C" fn sdr_core_add(a: i32, b: i32) -> i32 {
 
 #[no_mangle]
 pub extern "C" fn sdr_core_version() -> *const u8 {
-    static VERSION: &[u8] = b"sdr_core 0.1.0 (AM/FM demod + settings prototype)\0";
+    static VERSION: &[u8] = b"sdr_core 0.1.0 (history + settings prototype)\0";
     VERSION.as_ptr()
 }
 
@@ -91,11 +91,6 @@ pub extern "C" fn sdr_core_free_spectrum(ptr: *mut f32) {
     }
 }
 
-/// Testa a demodulação AM de ponta a ponta: gera um sinal AM sintético
-/// (portadora 5000Hz modulada por uma mensagem de 200Hz), demodula, e
-/// retorna a frequência detectada no resultado — deve ficar perto de
-/// 200Hz se a demodulação funcionou (não 5000Hz, que seria sinal de que
-/// a demodulação não removeu a portadora).
 #[no_mangle]
 pub extern "C" fn sdr_core_test_am_demod() -> f32 {
     const SAMPLE_RATE: f32 = 48000.0;
@@ -115,9 +110,6 @@ pub extern "C" fn sdr_core_test_am_demod() -> f32 {
     dsp::find_peak_frequency(&demodulated, SAMPLE_RATE)
 }
 
-/// Testa a demodulação FM de ponta a ponta: gera um sinal FM sintético
-/// (mensagem de 300Hz modulando a fase), demodula, e retorna a frequência
-/// detectada — deve ficar perto de 300Hz.
 #[no_mangle]
 pub extern "C" fn sdr_core_test_fm_demod() -> f32 {
     const SAMPLE_RATE: f32 = 48000.0;
@@ -255,10 +247,75 @@ pub extern "C" fn sdr_core_free_string(ptr: *mut c_char) {
 }
 
 // ---------------------------------------------------------------------
-// Configurações (settings) — chave/valor simples, ex: idioma escolhido
+// Histórico de escuta
 // ---------------------------------------------------------------------
 
-/// Salva (ou atualiza) uma configuração. Retorna 0 em sucesso.
+/// Registra uma sessão de escuta (frequência, modo, duração em segundos).
+/// Retorna o id criado, ou -1 em erro.
+#[no_mangle]
+pub extern "C" fn sdr_core_add_history(
+    freq_hz: f64,
+    mode_ptr: *const c_char,
+    duration_seconds: i64,
+) -> i64 {
+    let mode = unsafe { read_c_string(mode_ptr) };
+
+    let conn = db().lock().expect("mutex poisoned");
+    let result = conn.execute(
+        "INSERT INTO history (frequency_hz, mode, duration_seconds) VALUES (?1, ?2, ?3)",
+        rusqlite::params![freq_hz, mode, duration_seconds],
+    );
+
+    match result {
+        Ok(_) => conn.last_insert_rowid(),
+        Err(_) => -1,
+    }
+}
+
+#[derive(serde::Serialize)]
+struct HistoryRow {
+    id: i64,
+    frequency_hz: f64,
+    mode: String,
+    listened_at: String,
+    duration_seconds: i64,
+}
+
+/// Retorna as últimas 100 sessões de escuta, mais recentes primeiro,
+/// como JSON.
+#[no_mangle]
+pub extern "C" fn sdr_core_list_history() -> *mut c_char {
+    let conn = db().lock().expect("mutex poisoned");
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, frequency_hz, mode, listened_at, duration_seconds \
+             FROM history ORDER BY id DESC LIMIT 100",
+        )
+        .expect("prepare failed");
+
+    let rows: Vec<HistoryRow> = stmt
+        .query_map([], |row| {
+            Ok(HistoryRow {
+                id: row.get(0)?,
+                frequency_hz: row.get(1)?,
+                mode: row.get(2)?,
+                listened_at: row.get(3)?,
+                duration_seconds: row.get::<_, Option<i64>>(4)?.unwrap_or_default(),
+            })
+        })
+        .expect("query failed")
+        .filter_map(Result::ok)
+        .collect();
+
+    let json = serde_json::to_string(&rows).unwrap_or_else(|_| "[]".to_string());
+    CString::new(json).unwrap_or_default().into_raw()
+}
+
+// ---------------------------------------------------------------------
+// Configurações (settings)
+// ---------------------------------------------------------------------
+
 #[no_mangle]
 pub extern "C" fn sdr_core_set_setting(
     key_ptr: *const c_char,
@@ -280,9 +337,6 @@ pub extern "C" fn sdr_core_set_setting(
     }
 }
 
-/// Lê uma configuração salva. Retorna string vazia (não nulo) se a chave
-/// não existir — mais simples de tratar do lado Dart do que checar nulo.
-/// Memória alocada aqui — chamar `sdr_core_free_string` depois.
 #[no_mangle]
 pub extern "C" fn sdr_core_get_setting(key_ptr: *const c_char) -> *mut c_char {
     let key = unsafe { read_c_string(key_ptr) };
@@ -297,6 +351,96 @@ pub extern "C" fn sdr_core_get_setting(key_ptr: *const c_char) -> *mut c_char {
         .unwrap_or_default();
 
     CString::new(value).unwrap_or_default().into_raw()
+}
+
+// ---------------------------------------------------------------------
+// Áudio em tempo real (demodulação sintética, tocável)
+// ---------------------------------------------------------------------
+
+pub const AUDIO_SAMPLE_RATE: u32 = 44100;
+/// 100ms de áudio por bloco — casa com o intervalo do timer de UI (Dart),
+/// mantendo a geração de áudio e a atualização visual no mesmo ritmo.
+pub const AUDIO_CHUNK_SAMPLES: usize = 4410;
+
+#[no_mangle]
+pub extern "C" fn sdr_core_audio_sample_rate() -> i32 {
+    AUDIO_SAMPLE_RATE as i32
+}
+
+#[no_mangle]
+pub extern "C" fn sdr_core_audio_chunk_samples() -> i32 {
+    AUDIO_CHUNK_SAMPLES as i32
+}
+
+/// Centraliza e normaliza a amplitude de um sinal demodulado para faixa
+/// de áudio segura (-0.6 a 0.6, evitando saturação/estouro).
+fn normalize_audio(samples: &[f32]) -> Vec<f32> {
+    if samples.is_empty() {
+        return Vec::new();
+    }
+    let mean: f32 = samples.iter().sum::<f32>() / samples.len() as f32;
+    let centered: Vec<f32> = samples.iter().map(|s| s - mean).collect();
+    let max = centered.iter().map(|s| s.abs()).fold(0.0_f32, f32::max);
+    if max > 0.0001 {
+        centered.iter().map(|s| (s / max) * 0.6).collect()
+    } else {
+        centered
+    }
+}
+
+/// Gera um bloco de áudio demodulado (AM ou FM) pronto para tocar —
+/// ainda a partir de um tom sintético, não de RF real. `mode_ptr` deve
+/// ser "AM" ou "FM" (qualquer outra coisa cai no comportamento de FM).
+///
+/// Retorna um ponteiro para `AUDIO_CHUNK_SAMPLES` floats (-1.0 a 1.0).
+/// ATENÇÃO: memória alocada aqui — chamar `sdr_core_free_audio_chunk`
+/// depois de copiar os dados, ou vaza memória.
+#[no_mangle]
+pub extern "C" fn sdr_core_generate_audio_chunk(
+    message_freq_hz: f32,
+    mode_ptr: *const c_char,
+) -> *mut f32 {
+    let mode = unsafe { read_c_string(mode_ptr) };
+    let sample_rate = AUDIO_SAMPLE_RATE as f32;
+    let n = AUDIO_CHUNK_SAMPLES;
+
+    let demodulated = if mode.eq_ignore_ascii_case("AM") {
+        const CARRIER_HZ: f32 = 8000.0;
+        let samples: Vec<f32> = (0..n)
+            .map(|i| {
+                let t = i as f32 / sample_rate;
+                let envelope =
+                    1.0 + 0.5 * (2.0 * std::f32::consts::PI * message_freq_hz * t).sin();
+                envelope * (2.0 * std::f32::consts::PI * CARRIER_HZ * t).sin()
+            })
+            .collect();
+        dsp::demodulate_am(&samples, 8)
+    } else {
+        const FM_INDEX: f32 = 3.0;
+        let mut i_samples = Vec::with_capacity(n + 1);
+        let mut q_samples = Vec::with_capacity(n + 1);
+        for k in 0..=n {
+            let t = k as f32 / sample_rate;
+            let phase = FM_INDEX * (2.0 * std::f32::consts::PI * message_freq_hz * t).sin();
+            i_samples.push(phase.cos());
+            q_samples.push(phase.sin());
+        }
+        dsp::demodulate_fm(&i_samples, &q_samples)
+    };
+
+    let audio = normalize_audio(&demodulated);
+    let boxed_slice = audio.into_boxed_slice();
+    Box::into_raw(boxed_slice) as *mut f32
+}
+
+#[no_mangle]
+pub extern "C" fn sdr_core_free_audio_chunk(ptr: *mut f32) {
+    if ptr.is_null() {
+        return;
+    }
+    unsafe {
+        let _ = Box::from_raw(std::slice::from_raw_parts_mut(ptr, AUDIO_CHUNK_SAMPLES));
+    }
 }
 
 #[cfg(test)]
@@ -349,16 +493,16 @@ mod tests {
     }
 
     #[test]
-    fn persistent_db_crud_and_settings_roundtrip() {
+    fn persistent_db_full_roundtrip() {
         let path = CString::new(":memory:").unwrap();
         let init_result = sdr_core_db_init(path.as_ptr());
         assert!(init_result == 0 || init_result == -4, "init_result = {init_result}");
 
+        // Frequências
         let mode = CString::new("FM").unwrap();
         let name = CString::new("Teste CRUD").unwrap();
         let id = sdr_core_add_frequency(144_000_000.0, mode.as_ptr(), name.as_ptr());
         assert!(id >= 1, "id = {id}");
-
         assert_eq!(sdr_core_toggle_favorite(id), 0);
 
         let list_ptr = sdr_core_list_frequencies();
@@ -368,14 +512,45 @@ mod tests {
 
         assert_eq!(sdr_core_delete_frequency(id), 0);
 
-        // Settings
+        // Configurações
         let key = CString::new("locale").unwrap();
         let value = CString::new("ja").unwrap();
         assert_eq!(sdr_core_set_setting(key.as_ptr(), value.as_ptr()), 0);
-
         let read_ptr = sdr_core_get_setting(key.as_ptr());
         let read_value = unsafe { CStr::from_ptr(read_ptr) }.to_str().unwrap();
         assert_eq!(read_value, "ja");
         sdr_core_free_string(read_ptr);
+
+        // Histórico
+        let hist_mode = CString::new("AM").unwrap();
+        let hist_id = sdr_core_add_history(7_200_000.0, hist_mode.as_ptr(), 90);
+        assert!(hist_id >= 1, "hist_id = {hist_id}");
+
+        let hist_list_ptr = sdr_core_list_history();
+        let hist_json = unsafe { CStr::from_ptr(hist_list_ptr) }.to_str().unwrap();
+        assert!(hist_json.contains("7200000"));
+        sdr_core_free_string(hist_list_ptr);
+    }
+
+    #[test]
+    fn audio_chunk_fm_has_expected_length_and_safe_amplitude() {
+        let mode = CString::new("FM").unwrap();
+        let ptr = sdr_core_generate_audio_chunk(440.0, mode.as_ptr());
+        assert!(!ptr.is_null());
+        let slice = unsafe { std::slice::from_raw_parts(ptr, AUDIO_CHUNK_SAMPLES) };
+        let max = slice.iter().map(|s| s.abs()).fold(0.0_f32, f32::max);
+        assert!(max <= 0.61, "max amplitude = {max}");
+        sdr_core_free_audio_chunk(ptr);
+    }
+
+    #[test]
+    fn audio_chunk_am_has_expected_length_and_safe_amplitude() {
+        let mode = CString::new("AM").unwrap();
+        let ptr = sdr_core_generate_audio_chunk(440.0, mode.as_ptr());
+        assert!(!ptr.is_null());
+        let slice = unsafe { std::slice::from_raw_parts(ptr, AUDIO_CHUNK_SAMPLES) };
+        let max = slice.iter().map(|s| s.abs()).fold(0.0_f32, f32::max);
+        assert!(max <= 0.61, "max amplitude = {max}");
+        sdr_core_free_audio_chunk(ptr);
     }
 }

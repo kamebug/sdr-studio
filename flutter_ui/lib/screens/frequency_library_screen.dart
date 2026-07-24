@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
 import '../sdr_core_bridge.dart';
+import '../theme/app_theme.dart';
+import '../utils/frequency_format.dart';
 
 class FrequencyLibraryScreen extends StatefulWidget {
   const FrequencyLibraryScreen({super.key, required this.bridge});
@@ -51,11 +53,13 @@ class _FrequencyLibraryScreenState extends State<FrequencyLibraryScreen> {
                 controller: freqController,
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
+                style: monoStyle(fontSize: 14),
                 decoration: const InputDecoration(labelText: 'Hz'),
               ),
               const SizedBox(height: 8),
               DropdownButton<String>(
                 value: mode,
+                dropdownColor: AppColors.panel,
                 items: const [
                   DropdownMenuItem(value: 'AM', child: Text('AM')),
                   DropdownMenuItem(value: 'FM', child: Text('FM')),
@@ -98,30 +102,41 @@ class _FrequencyLibraryScreenState extends State<FrequencyLibraryScreen> {
           ? Center(
               child: Text(
                 l10n.frequencyLibrary,
-                style: const TextStyle(color: Colors.white38),
+                style: const TextStyle(color: AppColors.textMuted),
               ),
             )
-          : ListView.builder(
+          : ListView.separated(
+              padding: const EdgeInsets.symmetric(vertical: 8),
               itemCount: _frequencies.length,
+              separatorBuilder: (_, __) =>
+                  const Divider(height: 1, indent: 16, endIndent: 16),
               itemBuilder: (context, index) {
                 final item = _frequencies[index];
                 final isFavorite = item['is_favorite'] == true;
-                final freqHz = item['frequency_hz'];
+                final freqHz = (item['frequency_hz'] as num).toDouble();
                 final name = (item['name'] as String?) ?? '';
 
                 return ListTile(
                   leading: IconButton(
                     icon: Icon(
                       isFavorite ? Icons.star : Icons.star_border,
-                      color: isFavorite ? Colors.amber : null,
+                      color: isFavorite ? AppColors.accent : null,
                     ),
                     onPressed: () {
                       widget.bridge.toggleFavorite(item['id'] as int);
                       _reload();
                     },
                   ),
-                  title: Text(name.isEmpty ? '$freqHz Hz' : name),
-                  subtitle: Text('$freqHz Hz — ${item['mode']}'),
+                  title: Text(
+                    name.isEmpty ? formatFrequency(freqHz) : name,
+                  ),
+                  subtitle: Text(
+                    '${formatFrequency(freqHz)} — ${item['mode']}',
+                    style: monoStyle(
+                      fontSize: 12,
+                      color: AppColors.textMuted,
+                    ),
+                  ),
                   trailing: IconButton(
                     icon: const Icon(Icons.delete_outline),
                     onPressed: () {
