@@ -276,7 +276,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ).copyWith(
                 shadows: [
                   Shadow(
-                    color: AppColors.accent.withOpacity(0.5),
+                    color: AppColors.accent.withValues(alpha: 0.5),
                     blurRadius: 16,
                   ),
                 ],

@@ -34,32 +34,34 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
           ),
-          RadioListTile<Locale>(
-            title: const Text('English'),
-            value: const Locale('en'),
+          // RadioGroup substitui o antigo padrão de passar groupValue/
+          // onChanged em cada RadioListTile individualmente (API nova
+          // do Flutter, groupValue/onChanged por item foram depreciados
+          // a partir da v3.32).
+          RadioGroup<Locale>(
             groupValue: currentLocale,
-            activeColor: AppColors.accent,
             onChanged: (locale) {
               if (locale != null) onLocaleChanged(locale);
             },
-          ),
-          RadioListTile<Locale>(
-            title: const Text('日本語'),
-            value: const Locale('ja'),
-            groupValue: currentLocale,
-            activeColor: AppColors.accent,
-            onChanged: (locale) {
-              if (locale != null) onLocaleChanged(locale);
-            },
-          ),
-          RadioListTile<Locale>(
-            title: const Text('Português'),
-            value: const Locale('pt'),
-            groupValue: currentLocale,
-            activeColor: AppColors.accent,
-            onChanged: (locale) {
-              if (locale != null) onLocaleChanged(locale);
-            },
+            child: const Column(
+              children: [
+                RadioListTile<Locale>(
+                  title: Text('English'),
+                  value: Locale('en'),
+                  activeColor: AppColors.accent,
+                ),
+                RadioListTile<Locale>(
+                  title: Text('日本語'),
+                  value: Locale('ja'),
+                  activeColor: AppColors.accent,
+                ),
+                RadioListTile<Locale>(
+                  title: Text('Português'),
+                  value: Locale('pt'),
+                  activeColor: AppColors.accent,
+                ),
+              ],
+            ),
           ),
           const Divider(height: 32),
           Padding(

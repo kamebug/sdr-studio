@@ -1,9 +1,14 @@
-// This is a basic Flutter widget test.
+// Teste mínimo de smoke test — confirma que o app inicializa e mostra
+// pelo menos um MaterialApp na árvore de widgets, sem travar.
 //
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
+// O template padrão do "flutter create" referenciava uma classe "MyApp"
+// que nunca existiu neste projeto (o widget raiz real é SdrStudioApp,
+// em lib/main.dart) — esse era o erro que o "flutter analyze" apontava.
+//
+// Um teste mais completo (testando o carregamento do core Rust via FFI,
+// navegação entre telas, etc.) fica para quando a integração com
+// hardware estiver mais madura — FFI e plugins nativos (SoLoud) tornam
+// testes de widget completos mais trabalhosos de configurar em CI.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,20 +16,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sdr_studio/main.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('SdrStudioApp builds without throwing',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(
+      const SdrStudioApp(initialLocale: Locale('en')),
+    );
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
-
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    // Não avança o tempo suficiente para o carregamento do core Rust
+    // (FFI) ou do motor de áudio serem exercitados aqui — só confirma
+    // que a árvore de widgets inicial monta sem exceção.
+    expect(find.byType(MaterialApp), findsOneWidget);
   });
 }
